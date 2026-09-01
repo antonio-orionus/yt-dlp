@@ -1807,7 +1807,7 @@ class VHXEmbedIE(VimeoBaseInfoExtractor):
         'info_dict': {
             'id': '2251259',
             'ext': 'mp4',
-            'title': 'Untitled',
+            'title': 'Hard Work - Behind the Scenes with Sasha - Stay Tuned',
             'duration': 30,
             'thumbnail': r're:https?://i\.vimeocdn\.com/video/.+',
             'uploader': 'OTT Videos',
@@ -1822,9 +1822,27 @@ class VHXEmbedIE(VimeoBaseInfoExtractor):
         for embed_url in super()._extract_embed_urls(url, webpage):
             yield cls._smuggle_referrer(embed_url, url)
 
+    def _parent_title(self, webpage):
+        return (self._og_search_title(webpage, default=None)
+                or self._html_search_meta('twitter:title', webpage, default=None)
+                or self._html_extract_title(webpage, default=None))
+
+    def _extract_from_webpage(self, url, webpage):
+        title = self._parent_title(webpage)
+        embed_urls = list(self._extract_embed_urls(url, webpage))
+        if not embed_urls:
+            # demo.vhx.tv embeds via twitter:player with no iframe
+            embed_url = self._html_search_meta('twitter:player', webpage, default=None)
+            if embed_url and self.suitable(embed_url):
+                embed_urls = [self._smuggle_referrer(embed_url, url)]
+        for embed_url in embed_urls:
+            if title:
+                embed_url = smuggle_url(embed_url, {'title': title})
+            yield self.url_result(embed_url, self)
+
     def _real_extract(self, url):
         video_id = self._match_id(url)
-        url, _, headers = self._unsmuggle_headers(url)
+        url, smuggled_data, headers = self._unsmuggle_headers(url)
         webpage = self._download_webpage(url, video_id, headers=headers)
         config_url = self._parse_json(self._search_regex(
             r'window\.OTTData\s*=\s*({.+})', webpage,
@@ -1832,6 +1850,9 @@ class VHXEmbedIE(VimeoBaseInfoExtractor):
         config = self._download_json(config_url, video_id)
         info = self._parse_config(config, video_id)
         info['id'] = video_id
+        # Vimeo's player config uses the literal 'Untitled' for untitled videos
+        if info.get('title') == 'Untitled' and smuggled_data.get('title'):
+            info['title'] = smuggled_data['title']
         return info
 
 
